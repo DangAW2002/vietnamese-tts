@@ -2,6 +2,7 @@ import os
 import yaml
 import torch
 import torch.nn as nn
+import torch.nn.functional as F  # Added import for F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
@@ -232,8 +233,21 @@ def train_model(config):
             # Zero gradients
             optimizer.zero_grad()
             
-            # Forward pass
-            outputs = model(text)
+            # Forward pass - check if model supports target_shape parameter
+            try:
+                outputs = model(text, target_shape=features.shape)
+            except TypeError:
+                # Fall back to regular forward pass without target_shape
+                outputs = model(text)
+                
+                # Handle dimension mismatch manually if needed
+                if outputs.shape[2] != features.shape[2]:
+                    outputs = F.interpolate(
+                        outputs, 
+                        size=features.shape[2],
+                        mode='linear',
+                        align_corners=False
+                    )
             
             # Compute loss (simple MSE for demonstration)
             loss = criterion(outputs, features)
@@ -264,8 +278,21 @@ def train_model(config):
                 text = text.to(device)
                 features = features.to(device)
                 
-                # Forward pass
-                outputs = model(text)
+                # Forward pass - check if model supports target_shape parameter
+                try:
+                    outputs = model(text, target_shape=features.shape)
+                except TypeError:
+                    # Fall back to regular forward pass without target_shape
+                    outputs = model(text)
+                    
+                    # Handle dimension mismatch manually if needed
+                    if outputs.shape[2] != features.shape[2]:
+                        outputs = F.interpolate(
+                            outputs, 
+                            size=features.shape[2],
+                            mode='linear',
+                            align_corners=False
+                        )
                 
                 # Compute loss
                 loss = criterion(outputs, features)
