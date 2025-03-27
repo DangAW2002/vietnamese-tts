@@ -15,7 +15,7 @@ CHECKPOINT="$1"
 
 echo "Running TTS model with checkpoint: $CHECKPOINT"
 
-# Run the model inference (modify this command based on your actual inference script)
-python src/models/inference.py --checkpoint "$CHECKPOINT"
+# Run the model inference with Python 3
+python3 src/models/inference.py --checkpoint "$CHECKPOINT"
 
 echo "Model execution completed."

@@ -50,7 +50,7 @@ class TTSModel(nn.Module):
         Args:
             input_dim: Input dimension
             hidden_dim: Hidden dimension
-            output_dim: Output dimension
+            output_dim: Output dimension (number of mel bins)
         """
         super().__init__()
         self.encoder = TextEncoder(input_dim, hidden_dim)
@@ -60,17 +60,25 @@ class TTSModel(nn.Module):
         encoder_output = self.encoder(x)
         decoder_output = self.decoder(encoder_output)
         
+        # Ensure positive values with sigmoid activation
+        decoder_output = torch.sigmoid(decoder_output)
+        
+        # Convert to log-scale mel spectrogram
+        decoder_output = torch.log(torch.clamp(decoder_output, min=1e-5))
+        
+        # Normalize to typical mel spectrogram range
+        decoder_output = (decoder_output + 12) / 3  # Scale to roughly -12 to 0 dB range
+        
         # Transpose the output to match the target shape: [batch_size, time, features] -> [batch_size, features, time]
         decoder_output = decoder_output.transpose(1, 2)
         
-        # If target_shape is provided, resize the time dimension to match
+        # If target_shape is provided, ensure the output matches the target shape exactly
         if target_shape is not None:
-            # Assuming target_shape is a tuple with batch_size, feature_dim, time_dim
+            # Ensure the time dimension matches exactly using interpolate
             target_time_dim = target_shape[2]
             current_time_dim = decoder_output.shape[2]
             
             if current_time_dim != target_time_dim:
-                # Use interpolation to match the target time dimension
                 decoder_output = F.interpolate(
                     decoder_output, 
                     size=target_time_dim, 
