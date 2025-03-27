@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class TextEncoder(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int):
@@ -45,17 +46,36 @@ class AudioDecoder(nn.Module):
 class TTSModel(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         """
-        Text-to-Speech Model
+        Text-to-Speech model
         Args:
-            input_dim: Input dimension for text features
+            input_dim: Input dimension
             hidden_dim: Hidden dimension
-            output_dim: Output dimension for audio features
+            output_dim: Output dimension
         """
         super().__init__()
         self.encoder = TextEncoder(input_dim, hidden_dim)
         self.decoder = AudioDecoder(hidden_dim, output_dim)
         
-    def forward(self, x):
-        features = self.encoder(x)
-        audio = self.decoder(features)
-        return audio
+    def forward(self, x, target_shape=None):
+        encoder_output = self.encoder(x)
+        decoder_output = self.decoder(encoder_output)
+        
+        # Transpose the output to match the target shape: [batch_size, time, features] -> [batch_size, features, time]
+        decoder_output = decoder_output.transpose(1, 2)
+        
+        # If target_shape is provided, resize the time dimension to match
+        if target_shape is not None:
+            # Assuming target_shape is a tuple with batch_size, feature_dim, time_dim
+            target_time_dim = target_shape[2]
+            current_time_dim = decoder_output.shape[2]
+            
+            if current_time_dim != target_time_dim:
+                # Use interpolation to match the target time dimension
+                decoder_output = F.interpolate(
+                    decoder_output, 
+                    size=target_time_dim, 
+                    mode='linear', 
+                    align_corners=False
+                )
+        
+        return decoder_output
