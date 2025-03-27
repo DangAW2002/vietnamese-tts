@@ -53,20 +53,24 @@ class ProcessedAudioDataset(Dataset):
             embedding[i, char_id] = 1.0
         return embedding
 
-def collate_fn(batch):
+def collate_fn(batch, pad_to_fixed_length=False, max_seq_len=None):
     """
     Custom collate function to handle variable length sequences
+    Args:
+        batch: Batch of data
+        pad_to_fixed_length: Whether to pad sequences to a fixed length
+        max_seq_len: Maximum sequence length for padding
     """
     # Sort by text length in descending order
     batch.sort(key=lambda x: x[0].shape[0], reverse=True)
     
     # Get max lengths
     text_lengths = [item[0].shape[0] for item in batch]
-    max_text_len = max(text_lengths)
+    max_text_len = min(max(text_lengths), max_seq_len) if pad_to_fixed_length and max_seq_len else max(text_lengths)
     
     feature_lengths = [item[1].shape[1] if len(item[1].shape) > 1 else item[1].shape[0] 
                       for item in batch]
-    max_feature_len = max(feature_lengths)
+    max_feature_len = min(max(feature_lengths), max_seq_len) if pad_to_fixed_length and max_seq_len else max(feature_lengths)
     
     # Prepare batched tensors
     batch_size = len(batch)
@@ -84,15 +88,15 @@ def collate_fn(batch):
     
     # Fill in the data
     for i, (text, features) in enumerate(batch):
-        text_len = text.shape[0]
-        batched_text[i, :text_len, :] = text
-        
-        feat_len = features.shape[1] if len(features.shape) > 1 else features.shape[0]
+        text_len = min(text.shape[0], max_text_len)
+        batched_text[i, :text_len, :] = text[:text_len]
         
         if len(features.shape) > 1:
-            batched_features[i, :, :feat_len] = features
+            feat_len = min(features.shape[1], max_feature_len)
+            batched_features[i, :, :feat_len] = features[:, :feat_len]
         else:
-            batched_features[i, :feat_len] = features
+            feat_len = min(features.shape[0], max_feature_len)
+            batched_features[i, :feat_len] = features[:feat_len]
     
     return batched_text, batched_features, torch.tensor(text_lengths), torch.tensor(feature_lengths)
 
@@ -121,11 +125,24 @@ def train_model(config):
     train_dataset = ProcessedAudioDataset(config['data']['train_data'])
     val_dataset = ProcessedAudioDataset(config['data']['val_data'])
     
+    # Get padding parameters from config
+    pad_to_fixed_length = config.get('data_processing', {}).get('pad_to_fixed_length', False)
+    max_seq_len = config.get('data_processing', {}).get('max_seq_len', None)
+    
+    # Create custom collate functions with set parameters
+    def train_collate(batch):
+        return collate_fn(batch, pad_to_fixed_length, max_seq_len)
+    
+    def val_collate(batch):
+        return collate_fn(batch, pad_to_fixed_length, max_seq_len)
+    
+    print(f"Using padding: {pad_to_fixed_length}, max_seq_len: {max_seq_len}")
+    
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=True,
-        collate_fn=collate_fn,
+        collate_fn=train_collate,
         num_workers=2,
         pin_memory=True
     )
@@ -134,7 +151,7 @@ def train_model(config):
         val_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=False,
-        collate_fn=collate_fn,
+        collate_fn=val_collate,
         num_workers=2
     )
     
@@ -160,102 +177,88 @@ def train_model(config):
     
     for epoch in range(num_epochs):
         model.train()
+        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}")
         train_loss = 0.0
         
-        # Training step
-        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
-        for i, (text, features, text_lengths, feature_lengths) in enumerate(progress_bar):
-            # Move data to device
+        for batch in progress_bar:
+            optimizer.zero_grad()
+            text, features, text_lengths, feature_lengths = batch
             text = text.to(device)
             features = features.to(device)
             
-            # Zero gradients
-            optimizer.zero_grad()
-            
-            # Forward pass
-            outputs = model(text)
-            
-            # Compute loss (simple MSE for demonstration)
+            # Pass the target shape to the model
+            outputs = model(text, target_shape=features.shape)
             loss = criterion(outputs, features)
             
-            # Backward pass and optimize
             loss.backward()
             optimizer.step()
             
-            # Update statistics
             train_loss += loss.item()
-            progress_bar.set_postfix({'loss': loss.item()})
+            progress_bar.set_postfix(loss=f"{loss.item():.2e}")
             
-            # Log to tensorboard
-            global_step = epoch * len(train_loader) + i
-            writer.add_scalar('train/step_loss', loss.item(), global_step)
-            
-        # Calculate average training loss for the epoch
         avg_train_loss = train_loss / len(train_loader)
-        writer.add_scalar('train/epoch_loss', avg_train_loss, epoch)
+        writer.add_scalar('Loss/train', avg_train_loss, epoch)
         
-        # Validation step
+        # Validation phase
         model.eval()
         val_loss = 0.0
         
         with torch.no_grad():
             for text, features, text_lengths, feature_lengths in val_loader:
-                # Move data to device
                 text = text.to(device)
                 features = features.to(device)
                 
-                # Forward pass
-                outputs = model(text)
+                # Forward pass - pass features too for potential resizing
+                outputs = model(text, target_shape=features.shape)
                 
                 # Compute loss
                 loss = criterion(outputs, features)
                 val_loss += loss.item()
         
-        # Calculate average validation loss
         avg_val_loss = val_loss / len(val_loader)
-        writer.add_scalar('validation/epoch_loss', avg_val_loss, epoch)
+        writer.add_scalar('Loss/val', avg_val_loss, epoch)
         
-        # Print statistics
-        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+        print(f"Epoch {epoch}/{num_epochs}: Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
         
-        # Save checkpoint
-        if (epoch + 1) % config['training']['save_interval'] == 0:
-            checkpoint_path = checkpoint_dir / f"{config['training']['model_name']}_epoch_{epoch+1}.pth"
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'train_loss': avg_train_loss,
-                'val_loss': avg_val_loss
-            }, checkpoint_path)
-            print(f"Checkpoint saved to {checkpoint_path}")
-            
-        # Save best model
+        # Save checkpoint if validation loss improved
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            best_model_path = checkpoint_dir / f"{config['training']['model_name']}_best.pth"
+            checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch}.pt"
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'train_loss': avg_train_loss,
-                'val_loss': avg_val_loss
-            }, best_model_path)
-            print(f"Best model saved to {best_model_path}")
+                'val_loss': avg_val_loss,
+            }, checkpoint_path)
+            print(f"Checkpoint saved: {checkpoint_path}")
     
-    # Close tensorboard writer
-    writer.close()
     print("Training completed!")
 
 def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description='Train TTS model')
     parser.add_argument('--config', type=str, default='configs/config.yaml', help='Path to config file')
+    parser.add_argument('--batch_size', type=int, help='Batch size for training')
+    parser.add_argument('--pad_to_fixed_length', type=lambda x: x.lower() == 'true', help='Whether to pad sequences to fixed length')
+    parser.add_argument('--max_seq_len', type=int, help='Maximum sequence length for padding')
     args = parser.parse_args()
     
     # Load configuration
     with open(args.config, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
+    
+    # Override config with command line arguments if provided
+    if args.batch_size is not None:
+        config['training']['batch_size'] = args.batch_size
+        print(f"Overriding batch size with command line argument: {args.batch_size}")
+    
+    if args.pad_to_fixed_length is not None and args.max_seq_len is not None:
+        if 'data_processing' not in config:
+            config['data_processing'] = {}
+        config['data_processing']['pad_to_fixed_length'] = args.pad_to_fixed_length
+        config['data_processing']['max_seq_len'] = args.max_seq_len
+        print(f"Setting padding to fixed length: {args.pad_to_fixed_length}, max sequence length: {args.max_seq_len}")
     
     # Train model
     train_model(config)

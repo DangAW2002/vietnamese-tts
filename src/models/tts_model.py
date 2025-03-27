@@ -63,19 +63,27 @@ class TTSModel(nn.Module):
         # Transpose the output to match the target shape: [batch_size, time, features] -> [batch_size, features, time]
         decoder_output = decoder_output.transpose(1, 2)
         
-        # If target_shape is provided, resize the time dimension to match
+        # If target_shape is provided, ensure the output matches the target shape exactly
         if target_shape is not None:
-            # Assuming target_shape is a tuple with batch_size, feature_dim, time_dim
+            # Ensure the time dimension matches exactly using interpolate
             target_time_dim = target_shape[2]
             current_time_dim = decoder_output.shape[2]
             
             if current_time_dim != target_time_dim:
-                # Use interpolation to match the target time dimension
+                # Use interpolate to exactly match the target time dimension
                 decoder_output = F.interpolate(
                     decoder_output, 
                     size=target_time_dim, 
                     mode='linear', 
                     align_corners=False
                 )
+            
+            # Add zero padding if needed to match dimensions exactly
+            if decoder_output.shape != target_shape:
+                pad_size = [0, 0] * (len(decoder_output.shape) - 1)  # Initialize padding for all dimensions
+                time_pad = target_shape[2] - decoder_output.shape[2]
+                if time_pad > 0:
+                    pad_size[-1] = time_pad  # Pad the time dimension if needed
+                decoder_output = F.pad(decoder_output, pad_size)
         
         return decoder_output
