@@ -3,7 +3,7 @@ torchaudio>=0.9.0
 numpy==2.0.0
 scipy>=1.7.0
 librosa==0.10.1
-numba<0.58.0
+numba
 tensorboard>=2.6.0
 matplotlib>=3.4.0
 pandas>=1.3.0

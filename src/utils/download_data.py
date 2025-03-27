@@ -1,11 +1,11 @@
 import os
 import gdown
 import zipfile
-import shutil
 
 def download_and_extract_data():
     """
-    Downloads data from Google Drive and extracts it
+    Downloads data from Google Drive and extracts it,
+    fixing Windows-style paths to Linux-style paths.
     """
     print("Downloading data from Google Drive...")
     
@@ -13,7 +13,7 @@ def download_and_extract_data():
     url = "https://drive.google.com/uc?id=1JT3DyD0wnz7-7i4Zf5D9Sp9Q90_iBsga"
     
     # Create a data directory if it doesn't exist
-    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
     os.makedirs(data_dir, exist_ok=True)
     
     # Path for the downloaded zip file
@@ -25,9 +25,18 @@ def download_and_extract_data():
     print(f"Data downloaded to {zip_path}")
     print("Extracting data...")
     
-    # Extract the zip file
+    # Extract the zip file and fix paths
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(data_dir)
+        for member in zip_ref.namelist():
+            corrected_path = member.replace("\\", "/")  # Convert Windows paths to Unix format
+            target_path = os.path.join(data_dir, corrected_path)
+            
+            # Ensure parent directories exist
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            
+            # Extract file
+            with zip_ref.open(member) as source, open(target_path, "wb") as target:
+                target.write(source.read())
     
     print(f"Data extracted to {data_dir}")
     
