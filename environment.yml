@@ -1,0 +1,22 @@
+name: audio-processing
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pip>=23.0
+  - pytorch>=2.2.0
+  - torchaudio>=2.2.0
+  - numpy=2.0.0
+  - scipy>=1.12.0
+  - librosa==0.10.1
+  - matplotlib>=3.8.0
+  - pandas>=2.2.0
+  - scikit-learn>=1.0.0
+  - numba<0.58.0
+  - pip:
+    - tensorboard>=2.15.0
+    - tqdm>=4.66.0
+    - PyYAML>=6.0.1
+    - soundfile>=0.12.1

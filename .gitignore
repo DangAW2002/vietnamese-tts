@@ -1,0 +1,42 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm / VSCode
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Data files - quá lớn cho GitHub
+data/raw/
+data/processed/
+data/temp/
+*.pt
+*.wav
+
+# Checkpoints
+checkpoints/
+
+# Temp files
+*.bak
+*.zip
+
+# Các file cụ thể khác có thể lớn
+*.pth
